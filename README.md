@@ -37,10 +37,12 @@ If you want to use a more serious framework for big-boy apps that has all of the
 
 ## Installation
 
-Install [Node.js](https://nodejs.org/en), then clone this repository. You can just download the code, or use the git CLI.
+Install [Node.js](https://nodejs.org/en), clone this repository, and install dependencies.
 
 ```bash
 git clone https://github.com/fupicat/frung
+cd frung
+npm install
 ```
 
 ## Usage
