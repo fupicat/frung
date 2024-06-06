@@ -1,0 +1,16 @@
+{
+  "name": "frung",
+  "version": "0.1.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "fupicat",
+  "license": "CC0-1.0",
+  "description": "Dumb little web server for dumb little web developers.",
+  "dependencies": {
+    "ejs": "latest",
+    "express": "latest"
+  }
+}
