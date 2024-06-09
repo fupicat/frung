@@ -13,7 +13,7 @@
 - Middleware support, per route or per folder.
 - Plugin system for reusable behavior.
 - Easy to setup and run.
-- ~300 lines of pure, well-commented Javascript.
+- ~300 lines of pure, well-commented Javascript. Feel free to mess around!
 
 ### Non-features
 
@@ -67,41 +67,25 @@ npm install
 
     Just run the server.js file using Node.js:
 
-    ```bash
+    ```sh
     node server.js
+    # Or, if you prefer, run the start script:
+    #npm run start
     ```
 
     By default, the server runs on `http://localhost:3000`.
 
 3. **Configuration**
 
-    You can configure the server using command-line arguments:
+    You can configure the server using environment variables. You can create a `.env` file at the root of the project and it will be automatically loaded.
 
-    - `-p` or `--port`
-    - `-rp` or `--routes-path`: Set the routes directory (default: `routes`).
-    - `-pp` or `--plugins-path`: Set the plugins directory (default: `plugins`).
-    - `-cm` or `--cache-middleware`: Enable middleware caching (default: no)
+    - `PORT`: Set the port used for the server (default: `3000`).
+    - `ROUTES_PATH`: Set the routes directory (default: `routes`).
+    - `PLUGINS_PATH`: Set the plugins directory (default: `plugins`).
+    - `CACHE_MIDDLEWARE`: Enable middleware caching (default: no)
       - This makes it so that all middleware files are cached after they're first loaded. If you want to change a middleware's code with this enabled, you'll have to restart the server for the changes to take effect. Might help if you have heavy operations on middleware but, in general, I don't recommend this.
-    - `-nf` or `--not-found-route`: Set the 404 error route file (default: `404.ejs`).
-    - `-er` or `--error-route`: Set the 500 error route file (default: `500.ejs`).
-
-    Short form example:
-
-    ```sh
-    node server.js -p 8000 -rp myRoutes -pp myPlugins -cm -nf 404.ejs -er 500.ejs
-    ```
-
-    Long form example:
-
-    ```sh
-    node server.js --port=8000 --routes-path=myRoutes --plugins-path=myPlugins --cache-middleware --not-found-route=404.ejs --error-route=500.ejs
-    ```
-
-    You can also start the server by running the `start` script in the package, but then you should set the arguments in the `package.json` itself instead of putting them on the command line:
-
-    ```sh
-    npm run start # Don't use this with config arguments, put them in the package.json.
-    ```
+    - `NOT_FOUND_ROUTE`: Set the 404 error route file (default: `404.ejs`).
+    - `ERROR_ROUTE`: Set the 500 error route file (default: `500.ejs`).
 
 ## Routes
 
@@ -218,6 +202,21 @@ module.exports = function indexMiddleware(req, res, next) {
 };
 ```
 
+You can also export an array of middleware functions, and they'll be executed in order:
+
+```js
+module.exports = [
+  function first(req, res, next) {
+    console.log("First");
+    return next();
+  },
+  function second(req, res, next) {
+    console.log("Second");
+    return next();
+  },
+]
+```
+
 ### Folder middleware
 
 To apply a middleware to an entire folder, create a file at the root of that folder called `middleware.js`:
@@ -263,12 +262,13 @@ For example, if a user requests the page `/admin/posts/new`, the server will loo
 ### Ideas
 
 - Use folder middlewares to protect all routes with authentication.
+- Populate the `req` object with data fetched in the middleware to declutter your template files.
 - Use [Multer](https://www.npmjs.com/package/multer) to handle form submissions and file uploads on a per-route basis.
 - Create whatever logging behavior you want.
 
 ## Plugins
 
-Plugins are simply JavaScript files placed in the `plugins` directory. Each plugin is a CommonJS module that exports functions or objects that can be used within your routes through the `plugins` object. For example, if you create a file at `plugins/examplePlugin.js` with the following content:
+Plugins are simply JavaScript files placed in the `plugins` directory. Each plugin is a CommonJS module that can be used within your routes through the `plugins` object. For example, if you create a file at `plugins/examplePlugin.js` with the following content:
 
 ```js
 module.exports = {
@@ -292,6 +292,30 @@ Output:
 
 Unlike templates and middleware, plugins are *always* cached when the server starts. If you add a new plugin, or edit the code of one, you'll need to restart the server for that code to take effect. Use this to your advantage by delegating heavy tasks, such as connecting to databases, to a plugin.
 
+### Plugin folder structure
+
+If you want to create more complex plugins that are separated into different modules, you can create a folder, then, the modules inside your folder will be accessible via `plugins.folderName.fileName`. If you have a file called `index.js`, its exported properties and methods will be accessible directly on `plugins.folderName`. If there's any data or JS files you don't want to be included in the `plugins` object, just put them in a folder whose name starts with a dot:
+
+```
+plugins/
+└── example/
+    ├── .data/         # All files within this folder will not be available on the plugins object
+    │   └── secret.js
+    ├── index.js       # Exported properties will be on plugins.example
+    └── extras.ejs     # Exported properties will be on plugins.example.extras
+```
+
+### Importing server configuration.
+
+If you want to access server configuration or other plugins through your plugin, you can import the server itself as a module like this:
+
+```js
+// Path is relative to the project directory.
+const { config, plugins } = require("./server.js");
+```
+
 ## Error Handling
 
-The server handles errors by logging them to the console and serving an error page to the client. You can customize the error page by creating a file called `500.ejs` at the top level of the `routes` folder. You can also create a `404.ejs` file that will be served when the client requests a non-existent route.
+The server handles errors by logging them to the console and serving an error page to the client. You can customize the error page by creating a file called `500.ejs` at the top level of the `routes` folder. The error object is available at `req.error`.
+
+You can also create a `404.ejs` file that will be served when the client requests a non-existent route.

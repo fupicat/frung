@@ -5,73 +5,42 @@ const path = require("path");
 
 const app = express();
 
-// Check arguments for configuration, or use defaults.
-// E.g: node server.js -p 3000 -rp routes -pp plugins -cm -nf 404.ejs -er 500.ejs
-// E.g: node server.js --port=3000 --routes-path=routes --plugins-path=plugins --cache-middleware --not-found-route=404.ejs --error-route=500.ejs
-const config = {
-  port: 3000,
-  routesPath: "routes",
-  pluginsPath: "plugins",
-  cacheMiddleware: false,
-  notFoundRoute: "404.ejs",
-  errorRoute: "500.ejs",
-};
-const configArgs = [
-  {
-    short: "p",
-    long: "port",
-    key: "port",
-  },
-  {
-    short: "rp",
-    long: "routes-path",
-    key: "routesPath",
-  },
-  {
-    short: "pp",
-    long: "plugins-path",
-    key: "pluginsPath",
-  },
-  {
-    short: "cm",
-    long: "cache-middleware",
-    key: "cacheMiddleware",
-  },
-  {
-    short: "nf",
-    long: "not-found-route",
-    key: "notFoundRoute",
-  },
-  {
-    short: "er",
-    long: "error-route",
-    key: "errorRoute",
-  },
-];
-process.argv.forEach((arg, index) => {
-  for (const configArg of configArgs) {
-    if (arg === `-${configArg.short}`) {
-      config[configArg.key] = process.argv[index + 1];
-      break;
-    }
-    if (arg.startsWith(`--${configArg.long}=`)) {
-      config[configArg.key] = arg.replace(`--${configArg.long}=`, "");
-      break;
-    }
-  }
-});
+require("dotenv")?.config();
 
-// Import all default exports from .js files from the plugins folder into a plugins object.
-const plugins = {};
-(() => {
-  const pluginFiles = fs.readdirSync(config.pluginsPath);
-  for (const file of pluginFiles) {
-    if (file.endsWith(".js")) {
-      const plugin = require(`./${config.pluginsPath}/${file}`);
-      plugins[file.replace(".js", "")] = plugin;
-    }
-  }
-})();
+/**
+ * Configuration object for the server.
+ *
+ * @typedef {Object} Config
+ * @property {number} port - The port number for the server.
+ * @property {string} routesPath - The path to the routes directory.
+ * @property {string} pluginsPath - The path to the plugins directory.
+ * @property {boolean} cacheMiddleware - Flag indicating whether to cache the middleware modules.
+ * @property {string} notFoundRoute - The route for handling 404 errors.
+ * @property {string} errorRoute - The route for handling 500 errors.
+ */
+
+/**
+ * Server configuration.
+ *
+ * @type {Config}
+ */
+const config = {
+  port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
+  routesPath: process.env.ROUTES_PATH || "routes",
+  pluginsPath: process.env.PLUGINS_PATH || "plugins",
+  cacheMiddleware: process.env.CACHE_MIDDLEWARE === "true",
+  notFoundRoute: process.env.NOT_FOUND_ROUTE || "404.ejs",
+  errorRoute: process.env.ERROR_ROUTE || "500.ejs",
+};
+
+let plugins = {};
+
+// Includes plugins in the request.
+// Plugins are loaded at the end of the file.
+app.use((req, _res, next) => {
+  req.plugins = plugins;
+  return next();
+});
 
 // Route resolver
 app.use((req, res, next) => {
@@ -197,6 +166,7 @@ app.use((req, res, next) => {
 // Routes can be affected by multiple middlewares. Each folder that the route passes through
 // can have it's own middleware.js file that protects every file in the folder. Also, the route itself
 // can have a middleware file, with the same name as the route, with .middleware.js appended.
+// As a side-effect of how the router object works, you can also export an array of middleware functions.
 // E.g: If the route is /admin/posts/new, the server should look for middleware files in the following order:
 //   - /routes.middleware.js
 //   - /routes/middleware.js
@@ -248,56 +218,110 @@ app.use((req, res, next) => {
   return router.handle(req, res, next);
 });
 
+async function renderTemplate(path, data = {}) {
+  if (!fs.existsSync(path)) {
+    return "404";
+  }
+  const html = await ejs.renderFile(path, data, { async: true });
+  return html;
+}
+
 // Catch-all route for any method
-app.all("*", async (req, res) => {
+app.all("*", async (req, res, next) => {
   const { filePath } = req;
   req.params = req.routeParams;
   req.routeParams = undefined;
 
-  async function renderPage(path) {
-    async function renderTemplate(path) {
-      if (!fs.existsSync(path)) {
-        return "404";
-      }
-      try {
-        const html = await ejs.renderFile(
-          path,
-          { req, res, plugins, require },
-          { async: true }
-        );
-        if (res.headersSent) return;
-        return html;
-      } catch (error) {
-        console.error(error);
-        return null;
-      }
+  try {
+    // If the final path is a .ejs file, render it.
+    if (filePath.endsWith(".ejs")) {
+      const html = await renderTemplate(filePath, { req, res, require });
+      if (res.headersSent) return;
+      return res.send(html);
     }
 
-    const html = await renderTemplate(path);
-    if (!html) {
-      res.statusCode = 500;
-      const errorHtml = await renderTemplate(
-        `${config.routesPath}/${config.errorRoute}`
-      );
-      if (!errorHtml || errorHtml === "404")
-        return res.send("500 Internal Server Error");
-      return res.send(errorHtml);
-    }
-    return res.send(html);
+    // If the final path is a static file, send it.
+    return res.sendFile(filePath, { root: "." });
+  } catch (error) {
+    return next(error);
   }
-
-  // If the final path is a .ejs file, render it.
-  if (filePath.endsWith(".ejs")) {
-    return await renderPage(filePath);
-  }
-
-  // If the final path is a static file, send it.
-  return res.sendFile(filePath, { root: "." });
 });
 
+// Error handler
+app.use(async (error, req, res, _next) => {
+  res.statusCode = 500;
+  req.error = error;
+  console.error(error);
+
+  try {
+    const html = await renderTemplate(
+      `${config.routesPath}/${config.errorRoute}`,
+      { req, res, require }
+    );
+    if (res.headersSent) return;
+    if (html === "404")
+      return res.send(
+        "<h1>500 Internal Server Error</h1><p>Check server logs for details.</p>"
+      );
+    return res.send(html);
+  } catch (error) {
+    return res.send(
+      "<h1>500 Internal Server Error</h1><p>Check server logs for details.</p>"
+    );
+  }
+});
+
+// Start the server
 app.listen(config.port, () => {
   console.log(
     "Server is up: \x1b[36m%s\x1b[0m",
     `http://localhost:${config.port}`
   );
 });
+
+/**
+ * Server configuration and loaded plugins.
+ * @module server
+ * @type {{config: Config, plugins: any}}
+ */
+module.exports = {
+  config,
+  plugins,
+};
+
+// Import all default exports from .js files recursively from the plugins folder into a plugins object.
+// Folders prepended with a dot are ignored.
+// If a folder only contains a .js file named index.js, its exports will be available in the root object of the plugin.
+// E.g: /plugins/viewCounter/index.js will be imported as plugins.viewCounter
+// E.g: /plugins/viewCounter.js will also be imported as plugins.viewCounter
+// E.g: /plugins/models/user.js will be imported as plugins.models.user
+const importPlugins = (folderPath, parentObject) => {
+  const files = fs.readdirSync(folderPath);
+  files.forEach((file) => {
+    if (file.startsWith(".")) return;
+    const filePath = `${folderPath}/${file}`;
+    const fileStat = fs.lstatSync(filePath);
+    if (fileStat.isDirectory()) {
+      parentObject[file] = {};
+      importPlugins(filePath, parentObject[file]);
+    } else if (file.endsWith(".js")) {
+      const fileName = file.replace(".js", "");
+      parentObject[fileName] = require(path.resolve(filePath));
+    }
+  });
+};
+importPlugins(config.pluginsPath, plugins);
+
+// Find all objects named "index" and assign their properties to their parent object.
+// E.g: plugins.viewCounter.index will be assigned to plugins.viewCounter
+const assignIndexProperties = (parentObject) => {
+  Object.keys(parentObject).forEach((key) => {
+    if (key === "index") {
+      Object.assign(parentObject, parentObject.index);
+      delete parentObject.index;
+    } else if (typeof parentObject[key] === "object") {
+      assignIndexProperties(parentObject[key]);
+    }
+  });
+};
+assignIndexProperties(plugins);

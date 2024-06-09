@@ -1,6 +1,12 @@
-<%- await include("(elements)/header", { title: "error" }) %>
+<%- await include("(elements)/header", { title: "500" }) %>
 
 <h1>500</h1>
-<p>check logs for details</p>
+
+<%# Error printing if the server is in dev mode. %>
+<%
+  if (process.env.NODE_ENV === "development" && req.error) {
+%>
+<pre><%= req.error.stack %></pre>
+<% } %>
 
 <%- await include("(elements)/footer") %>

@@ -10,6 +10,7 @@
   "license": "CC0-1.0",
   "description": "Dumb little web server for dumb little web developers.",
   "dependencies": {
+    "dotenv": "^16.4.5",
     "ejs": "latest",
     "express": "latest"
   }
