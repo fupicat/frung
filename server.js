@@ -289,39 +289,51 @@ module.exports = {
   plugins,
 };
 
-// Import all default exports from .js files recursively from the plugins folder into a plugins object.
-// Folders prepended with a dot are ignored.
-// If a folder only contains a .js file named index.js, its exports will be available in the root object of the plugin.
-// E.g: /plugins/viewCounter/index.js will be imported as plugins.viewCounter
-// E.g: /plugins/viewCounter.js will also be imported as plugins.viewCounter
-// E.g: /plugins/models/user.js will be imported as plugins.models.user
-const importPlugins = (folderPath, parentObject) => {
-  const files = fs.readdirSync(folderPath);
-  files.forEach((file) => {
-    if (file.startsWith(".")) return;
-    const filePath = `${folderPath}/${file}`;
-    const fileStat = fs.lstatSync(filePath);
-    if (fileStat.isDirectory()) {
-      parentObject[file] = {};
-      importPlugins(filePath, parentObject[file]);
-    } else if (file.endsWith(".js")) {
-      const fileName = file.replace(".js", "");
-      parentObject[fileName] = require(path.resolve(filePath));
-    }
-  });
-};
-importPlugins(config.pluginsPath, plugins);
+(() => {
+  // This object is used to save the paths of the plugins.
+  // We use it later on to assign the properties of the index object to their parent.
+  // E.g: plugins.viewCounter.index will be assigned to plugins.viewCounter
+  // This can't be done on the raw plugins object because then
+  // we could be merging "index" objects from the exported modules themselves,
+  // which we don't want, and could overflow the call stack.
+  const pluginsPaths = {};
 
-// Find all objects named "index" and assign their properties to their parent object.
-// E.g: plugins.viewCounter.index will be assigned to plugins.viewCounter
-const assignIndexProperties = (parentObject) => {
-  Object.keys(parentObject).forEach((key) => {
-    if (key === "index") {
-      Object.assign(parentObject, parentObject.index);
-      delete parentObject.index;
-    } else if (typeof parentObject[key] === "object") {
-      assignIndexProperties(parentObject[key]);
-    }
-  });
-};
-assignIndexProperties(plugins);
+  // Import all default exports from .js files recursively from the plugins folder into a plugins object.
+  // Folders prepended with a dot are ignored.
+  // If a folder only contains a .js file named index.js, its exports will be available in the root object of the plugin.
+  // E.g: /plugins/viewCounter/index.js will be imported as plugins.viewCounter
+  // E.g: /plugins/viewCounter.js will also be imported as plugins.viewCounter
+  // E.g: /plugins/models/user.js will be imported as plugins.models.user
+  const importPlugins = (folderPath, parentObject, parentPathObject) => {
+    const files = fs.readdirSync(folderPath);
+    files.forEach((file) => {
+      if (file.startsWith(".")) return;
+      const filePath = `${folderPath}/${file}`;
+      const fileStat = fs.lstatSync(filePath);
+      if (fileStat.isDirectory()) {
+        parentObject[file] = {};
+        parentPathObject[file] = {};
+        importPlugins(filePath, parentObject[file], parentPathObject[file]);
+      } else if (file.endsWith(".js")) {
+        const fileName = file.replace(".js", "");
+        parentObject[fileName] = require(path.resolve(filePath));
+        parentPathObject[fileName] = {};
+      }
+    });
+  };
+  importPlugins(config.pluginsPath, plugins, pluginsPaths);
+
+  // Find all objects named "index" and assign their properties to their parent object.
+  // E.g: plugins.viewCounter.index will be assigned to plugins.viewCounter
+  const assignIndexProperties = (parentObject, parentPathObject) => {
+    Object.keys(parentPathObject).forEach((key) => {
+      if (key === "index") {
+        Object.assign(parentObject, parentObject.index);
+        delete parentObject.index;
+      } else if (typeof parentPathObject[key] === "object") {
+        assignIndexProperties(parentObject[key], parentPathObject[key]);
+      }
+    });
+  };
+  assignIndexProperties(plugins, pluginsPaths);
+})();
