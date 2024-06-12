@@ -206,9 +206,7 @@ This file should be a CommonJS module that exports an [Express middleware functi
 
 ```js
 /**
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
+ * @type {import('express').RequestHandler}
  */
 module.exports = function indexMiddleware(req, res, next) {
   console.log("Hello from the middleware!");
@@ -219,21 +217,14 @@ module.exports = function indexMiddleware(req, res, next) {
 You can also export an array of middleware functions, and they'll be executed in order:
 
 ```js
+/**
+ * @type {import('express').RequestHandler[]}
+ */
 module.exports = [
-  /**
-   * @param {import('express').Request} req
-   * @param {import('express').Response} res
-   * @param {import('express').NextFunction} next
-   */
   function first(req, res, next) {
     console.log("First");
     return next();
   },
-  /**
-   * @param {import('express').Request} req
-   * @param {import('express').Response} res
-   * @param {import('express').NextFunction} next
-   */
   function second(req, res, next) {
     console.log("Second");
     return next();
