@@ -37,11 +37,12 @@ If you want to use a more serious framework for big-boy apps that has all of the
 
 ## Installation
 
-Install [Node.js](https://nodejs.org/en), clone this repository, and install dependencies.
+Install [Node.js](https://nodejs.org/en), clone this repository, and install dependencies. I recommend using [degit](https://github.com/Rich-Harris/degit) so that you don't copy over the git history.
 
 ```bash
-git clone https://github.com/fupicat/frung
-cd frung
+npm install -g degit
+degit fupicat/frung my-frung-project
+cd my-frung-project
 npm install
 ```
 
