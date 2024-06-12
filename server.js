@@ -13,7 +13,6 @@ require("dotenv")?.config();
  * @typedef {Object} Config
  * @property {number} port - The port number for the server.
  * @property {string} routesPath - The path to the routes directory.
- * @property {string} pluginsPath - The path to the plugins directory.
  * @property {boolean} cacheMiddleware - Flag indicating whether to cache the middleware modules.
  * @property {string} notFoundRoute - The route for handling 404 errors.
  * @property {string} errorRoute - The route for handling 500 errors.
@@ -27,20 +26,10 @@ require("dotenv")?.config();
 const config = {
   port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
   routesPath: process.env.ROUTES_PATH || "routes",
-  pluginsPath: process.env.PLUGINS_PATH || "plugins",
   cacheMiddleware: process.env.CACHE_MIDDLEWARE === "true",
   notFoundRoute: process.env.NOT_FOUND_ROUTE || "404.ejs",
   errorRoute: process.env.ERROR_ROUTE || "500.ejs",
 };
-
-let plugins = {};
-
-// Includes plugins in the request.
-// Plugins are loaded at the end of the file.
-app.use((req, _res, next) => {
-  req.plugins = plugins;
-  return next();
-});
 
 // Route resolver
 app.use((req, res, next) => {
@@ -222,7 +211,10 @@ async function renderTemplate(path, data = {}) {
   if (!fs.existsSync(path)) {
     return "404";
   }
-  const html = await ejs.renderFile(path, data, { async: true });
+  const html = await ejs.renderFile(path, data, {
+    async: true,
+    root: config.routesPath,
+  });
   return html;
 }
 
@@ -280,60 +272,10 @@ app.listen(config.port, () => {
 });
 
 /**
- * Server configuration and loaded plugins.
+ * Server configuration.
  * @module server
- * @type {{config: Config, plugins: any}}
+ * @type {{config: Config}}
  */
 module.exports = {
   config,
-  plugins,
 };
-
-(() => {
-  // This object is used to save the paths of the plugins.
-  // We use it later on to assign the properties of the index object to their parent.
-  // E.g: plugins.viewCounter.index will be assigned to plugins.viewCounter
-  // This can't be done on the raw plugins object because then
-  // we could be merging "index" objects from the exported modules themselves,
-  // which we don't want, and could overflow the call stack.
-  const pluginsPaths = {};
-
-  // Import all default exports from .js files recursively from the plugins folder into a plugins object.
-  // Folders prepended with a dot are ignored.
-  // If a folder only contains a .js file named index.js, its exports will be available in the root object of the plugin.
-  // E.g: /plugins/viewCounter/index.js will be imported as plugins.viewCounter
-  // E.g: /plugins/viewCounter.js will also be imported as plugins.viewCounter
-  // E.g: /plugins/models/user.js will be imported as plugins.models.user
-  const importPlugins = (folderPath, parentObject, parentPathObject) => {
-    const files = fs.readdirSync(folderPath);
-    files.forEach((file) => {
-      if (file.startsWith(".")) return;
-      const filePath = `${folderPath}/${file}`;
-      const fileStat = fs.lstatSync(filePath);
-      if (fileStat.isDirectory()) {
-        parentObject[file] = {};
-        parentPathObject[file] = {};
-        importPlugins(filePath, parentObject[file], parentPathObject[file]);
-      } else if (file.endsWith(".js")) {
-        const fileName = file.replace(".js", "");
-        parentObject[fileName] = require(path.resolve(filePath));
-        parentPathObject[fileName] = {};
-      }
-    });
-  };
-  importPlugins(config.pluginsPath, plugins, pluginsPaths);
-
-  // Find all objects named "index" and assign their properties to their parent object.
-  // E.g: plugins.viewCounter.index will be assigned to plugins.viewCounter
-  const assignIndexProperties = (parentObject, parentPathObject) => {
-    Object.keys(parentPathObject).forEach((key) => {
-      if (key === "index") {
-        Object.assign(parentObject, parentObject.index);
-        delete parentObject.index;
-      } else if (typeof parentPathObject[key] === "object") {
-        assignIndexProperties(parentObject[key], parentPathObject[key]);
-      }
-    });
-  };
-  assignIndexProperties(plugins, pluginsPaths);
-})();

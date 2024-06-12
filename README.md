@@ -11,7 +11,6 @@
 - Dynamic module loading for editing routes and files while the server is running.
 - Dynamic routing with support for catch-all routes.
 - Middleware support, per route or per folder.
-- Plugin system for reusable behavior.
 - Easy to setup and run.
 - ~300 lines of pure, well-commented Javascript. Feel free to mess around!
 
@@ -50,16 +49,13 @@ npm install
 
 1. **Setting up your project**
 
-    A frung website consists of [routes](#routes), [middleware](#middleware) and [plugins](#plugins). Routes and middleware are kept in a `routes` folder, and plugins are kept in a `plugins` folder. For example:
+    A frung website consists of [routes](#routes) and [middleware](#middleware), both of which are kept in a `routes` folder. For example:
 
     ```
     frung/
     ├── routes/
     │   ├── index.ejs
     │   ├── middleware.js
-    │   └── ...
-    ├── plugins/
-    │   ├── example.js
     │   └── ...
     └── server.js
     ```
@@ -71,7 +67,7 @@ npm install
     ```sh
     node server.js
     # Or, if you prefer, run the start script:
-    #npm run start
+    npm run start
     ```
 
     By default, the server runs on `http://localhost:3000`.
@@ -82,7 +78,6 @@ npm install
 
     - `PORT`: Set the port used for the server (default: `3000`).
     - `ROUTES_PATH`: Set the routes directory (default: `routes`).
-    - `PLUGINS_PATH`: Set the plugins directory (default: `plugins`).
     - `CACHE_MIDDLEWARE`: Enable middleware caching (default: no)
       - This makes it so that all middleware files are cached after they're first loaded. If you want to change a middleware's code with this enabled, you'll have to restart the server for the changes to take effect. Might help if you have heavy operations on middleware but, in general, I don't recommend this.
     - `NOT_FOUND_ROUTE`: Set the 404 error route file (default: `404.ejs`).
@@ -90,7 +85,7 @@ npm install
 
 ## Routes
 
-Every file you put in the `routes` directory becomes a route, be it a static file, or an EJS template. All EJS templates have access to the Express `req`, `res`, a `plugins` object, and the `require` function.
+Every file you put in the `routes` directory becomes a route, be it a static file, or an EJS template. All EJS templates have access to the Express `req`, `res`, and the `require` function.
 
 - You can edit/add/remove routes and files while the server is running.
 - Routes can respond to any kind of HTTP method, accessible with the value `req.method`.
@@ -104,7 +99,6 @@ Here's an example of a `routes` folder showcasing all features:
 ```
 routes/
 ├── favicon.ico
-├── style.css
 ├── index.ejs
 ├── about.ejs
 ├── posts/
@@ -113,8 +107,7 @@ routes/
 ├── admin/
 │   └── [...path].ejs
 └── (elements)/
-    ├── header.ejs
-    └── footer.ejs
+    └── header.ejs
 ```
 
 You should read the [EJS documentation](https://ejs.co/#docs) for info on how to use the templating language. But there are some different things that you should keep in mind:
@@ -135,14 +128,14 @@ You can fetch data or implement any promise just by awaiting:
 
 ### Include
 
-You can use the `include` function to render another template within a template. Remember, the path argument is always **relative to the EJS file being edited**, not to the project root. Also, since rendering is done asynchronously, ***you need to await the function***. This is not covered in the EJS documentation.
+You can use the `include` function to render another template within a template. Absolute paths will be relative to the `routes` folder, so you can store your partials inside it. Also, since rendering is done asynchronously, ***you need to await the function***. This is not covered in the EJS documentation.
 
 ```js
-<%- await include("(elements)/header") %>
+<%- await include("/(elements)/header") %>
 
 <h1>Page</h1>
 
-<%- await include("(elements)/footer") %>
+<%- await include("/(elements)/footer") %>
 ```
 
 ### Require
@@ -152,11 +145,31 @@ Use `require()` to import modules in your template.
 ```js
 <%
   const fs = require("fs/promises");
-  // Filepaths are relative to the project root.
+  // Filepaths are relative to the project root, not to the EJS file.
   const blogPost = await fs.readFile("content/post.md", { encoding: "utf-8" });
 %>
 
 <p><%= blogPost %></p>
+```
+
+### Local modules
+
+In order to allow you to edit the website while it's running, routes and middleware aren't cached. Therefore, you might want to delegate heavy operations to other JS files in your project, so you can do proper caching, and then require them in your templates. Required modules are always cached, so if you edit the code of a JS module that you import elsewhere, you have to restart the server for it to work.
+
+```js
+<%
+  // Module filepaths starting with "./" are relative to the project root, not to the EJS file.
+  const bigModule = require("./modules/heavy.js");
+%>
+
+<p><%= bigModule.doOperation() %></p>
+```
+
+If you need to access server configuration through your local modules, you can import the server itself as a module like this:
+
+```js
+// Path is relative to the project directory.
+const { config } = require("./server.js");
 ```
 
 ### Other response types
@@ -207,10 +220,20 @@ You can also export an array of middleware functions, and they'll be executed in
 
 ```js
 module.exports = [
+  /**
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   * @param {import('express').NextFunction} next
+   */
   function first(req, res, next) {
     console.log("First");
     return next();
   },
+  /**
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   * @param {import('express').NextFunction} next
+   */
   function second(req, res, next) {
     console.log("Second");
     return next();
@@ -266,54 +289,6 @@ For example, if a user requests the page `/admin/posts/new`, the server will loo
 - Populate the `req` object with data fetched in the middleware to declutter your template files.
 - Use [Multer](https://www.npmjs.com/package/multer) to handle form submissions and file uploads on a per-route basis.
 - Create whatever logging behavior you want.
-
-## Plugins
-
-Plugins are simply JavaScript files placed in the `plugins` directory. Each plugin is a CommonJS module that can be used within your routes through the `plugins` object. For example, if you create a file at `plugins/examplePlugin.js` with the following content:
-
-```js
-module.exports = {
-  greet: function(name) {
-    return `Hello, ${name}!`;
-  }
-};
-```
-
-You can use this function in your EJS templates:
-
-```js
-<p><%= plugins.examplePlugin.greet('world') %></p>
-```
-
-Output:
-
-```html
-<p>Hello, world!</p>
-```
-
-Unlike templates and middleware, plugins are *always* cached when the server starts. If you add a new plugin, or edit the code of one, you'll need to restart the server for that code to take effect. Use this to your advantage by delegating heavy tasks, such as connecting to databases, to a plugin.
-
-### Plugin folder structure
-
-If you want to create more complex plugins that are separated into different modules, you can create a folder, then, the modules inside your folder will be accessible via `plugins.folderName.fileName`. If you have a file called `index.js`, its exported properties and methods will be accessible directly on `plugins.folderName`. If there's any data or JS files you don't want to be included in the `plugins` object, just put them in a folder whose name starts with a dot:
-
-```
-plugins/
-└── example/
-    ├── .data/         # All files within this folder will not be available on the plugins object
-    │   └── secret.js
-    ├── index.js       # Exported properties will be on plugins.example
-    └── extras.ejs     # Exported properties will be on plugins.example.extras
-```
-
-### Importing server configuration.
-
-If you want to access server configuration or other plugins through your plugin, you can import the server itself as a module like this:
-
-```js
-// Path is relative to the project directory.
-const { config, plugins } = require("./server.js");
-```
 
 ## Error Handling
 
