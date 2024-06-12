@@ -202,7 +202,24 @@ app.use((req, res, next) => {
   // Execute the middleware files in order.
   const router = express.Router();
 
-  router.use(...middlewareFunctions);
+  router.use(
+    ...middlewareFunctions.flat().map((fn) => {
+      function asyncErrorHandler(fn) {
+        return function (req, res, next) {
+          try {
+            const result = fn(req, res, next);
+            if (result instanceof Promise) {
+              result.catch(next);
+            }
+          } catch (err) {
+            next(err);
+          }
+        };
+      }
+
+      return asyncErrorHandler(fn);
+    })
+  );
 
   return router.handle(req, res, next);
 });
